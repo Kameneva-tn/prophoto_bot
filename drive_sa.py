@@ -9,16 +9,47 @@
 import os, glob, mimetypes
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+TOKEN = os.path.join(HERE, "token.json")          # OAuth-варіант: python3 drive_sa.py auth
+SCOPES = ["https://www.googleapis.com/auth/drive"]
+
+def _sa_path():
+    p = os.getenv("GOOGLE_SA_JSON"); return os.path.join(HERE, p) if p else None
+
 def enabled():
-    p = os.getenv("GOOGLE_SA_JSON"); f = os.getenv("DRIVE_ORDERS_FOLDER_ID")
-    return bool(p and f and os.path.exists(os.path.join(HERE, p)))
+    f = os.getenv("DRIVE_ORDERS_FOLDER_ID")
+    sa = _sa_path()
+    return bool(f) and ((sa and os.path.exists(sa)) or os.path.exists(TOKEN))
+
+def _creds():
+    sa = _sa_path()
+    if sa and os.path.exists(sa):
+        from google.oauth2 import service_account
+        return service_account.Credentials.from_service_account_file(sa, scopes=SCOPES)
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    creds = Credentials.from_authorized_user_file(TOKEN, SCOPES)
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request()); open(TOKEN, "w").write(creds.to_json())
+    return creds
 
 def _svc():
-    from google.oauth2 import service_account
     from googleapiclient.discovery import build
-    creds = service_account.Credentials.from_service_account_file(os.path.join(HERE, os.getenv("GOOGLE_SA_JSON")),
-                                                                  scopes=["https://www.googleapis.com/auth/drive"])
-    return build("drive", "v3", credentials=creds)
+    return build("drive", "v3", credentials=_creds())
+
+def auth():
+    """Одноразовий вхід у Google через браузер (потрібен credentials.json — OAuth-клієнт типу Desktop)."""
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    cred = os.path.join(HERE, "credentials.json")
+    if not os.path.exists(cred): raise SystemExit("Немає credentials.json (Google Cloud → APIs & Services → Credentials → OAuth client ID → Desktop app → Download JSON)")
+    creds = InstalledAppFlow.from_client_secrets_file(cred, SCOPES).run_local_server(port=0)
+    open(TOKEN, "w").write(creds.to_json()); print("Токен збережено у token.json")
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "auth": auth()
+    elif len(sys.argv) > 1 and sys.argv[1] == "test":
+        svc = _svc(); print(svc.files().get(fileId=os.getenv("DRIVE_ORDERS_FOLDER_ID"), fields="name", supportsAllDrives=True).execute())
+    else: print(__doc__)
 
 def upload_order(order_dir, order_id):
     from googleapiclient.http import MediaFileUpload
