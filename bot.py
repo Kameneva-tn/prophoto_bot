@@ -365,7 +365,8 @@ def render(order_dir, brief):
     return sorted(glob.glob(os.path.join(out, "slide_*.jpg"))), os.path.join(out, "preview.jpg")
 
 def order_text(brief):
-    lines = [f"Замовлення #{brief['order_id']}", f"Клієнт: {brief['user']['name']} @{brief['user']['username']}",
+    lines = [f"Замовлення #{brief['order_id']}",
+             f"Назва для готового файлу: {brief['order_id']}__{brief['user']['id']} -- підпис.jpg", f"Клієнт: {brief['user']['name']} @{brief['user']['username']}",
              f"Тип: {'рілз' if brief['type']=='reels' else 'карусель'} · шаблон {brief['template']} — {TEMPLATES[brief['template']]['name']}",
              f"Фото: {len(brief['photos'])}" + (" · є скріншот профілю, просить пораду" if brief.get("advice_requested") else "")]
     if brief.get("draft"):
@@ -382,9 +383,6 @@ async def finish(update, ctx):
     await chat.send_message(f"Дякую! Замовлення #{brief['order_id']} прийнято.\nШаблон {t} — {TEMPLATES[t]['name']}, фото: {len(brief['photos'])}.\n"
                             "Ми зберемо макет і надішлемо сюди на погодження.")
     link = None
-    if DRIVE_ENABLED:
-        try: link = drive_sa.upload_order(d, brief["order_id"])
-        except Exception: log.exception("drive upload failed")
     figma_url = None
     if FIGMA_ENABLED and (brief["type"] == "reels" or brief.get("slides")) and not brief.get("draft"):
         await chat.send_message("Збираю макет у Figma… це займе 2–4 хвилини.")
@@ -398,9 +396,6 @@ async def finish(update, ctx):
                 await chat.send_media_group([InputMediaPhoto(open(p, "rb")) for p in files[i:i + 10]])
             note = "" if res["complete"] else "\n(Для цього шаблону автоматично зібрано обкладинку; внутрішні слайди доверстає дизайнер.)"
             await chat.send_message("Ось макет. Якщо потрібні правки — напишіть, що змінити, менеджер внесе." + note)
-            if DRIVE_ENABLED:
-                try: link = drive_sa.upload_order(d, brief["order_id"])
-                except Exception: log.exception("drive upload failed")
         except Exception:
             log.exception("figma build failed")
             await chat.send_message("Автозбірка не спрацювала — макет зберемо вручну й надішлемо сюди.")
@@ -416,9 +411,6 @@ async def finish(update, ctx):
             await ctx.bot.send_message(ADMIN_CHAT, txt[:4000], disable_web_page_preview=True)
         except Exception:
             log.exception("admin notify failed")
-    if link:
-        try: await chat.send_message(f"Фото та бриф збережено в папці замовлення: {link}", disable_web_page_preview=True)
-        except Exception: pass
     ctx.user_data.clear()
     return ConversationHandler.END
 
@@ -437,35 +429,41 @@ async def cancel(update, ctx):
 
 # ----------------------------------------------------------------------------- main
 async def deliver_ready(context):
-    """Раз на хвилину: файли з Drive «ГОТОВО» → адресату. Формат назви: [<chat_id>__]назва[ -- підпис].ext
-    Якщо на початку є <id>__ — шлемо цьому клієнту в приват і копію в ADMIN_CHAT; інакше — лише в ADMIN_CHAT."""
+    """Файли з Drive «ГОТОВО» → замовнику. Назва: <номер_замовлення>__<id_замовника>[ -- підпис].ext
+    Бот бере id замовника прямо з назви (усі дані в одному місці). Копія — у робочий чат ADMIN_CHAT."""
     if not (DRIVE_ENABLED and drive_sa.delivery_enabled()): return
     try:
         import asyncio, tempfile
         files = await asyncio.to_thread(drive_sa.list_ready)
         for f in files:
-            name = f["name"]; target = ADMIN_CHAT; who = None
-            if "__" in name:
-                pref, rest = name.split("__", 1)
-                if pref.strip().lstrip("-").isdigit():
-                    target = pref.strip(); name = rest
+            raw = f["name"]; name = raw; target = None; order = None
+            head = raw.split(" -- ", 1)[0]
             caption = None
-            if " -- " in name:
-                _, cap = name.split(" -- ", 1); caption = os.path.splitext(cap)[0]
-            path = os.path.join(tempfile.gettempdir(), f["id"] + "_" + name)
-            await asyncio.to_thread(drive_sa.download, f["id"], path)
+            if " -- " in raw:
+                caption = os.path.splitext(raw.split(" -- ", 1)[1])[0]
+            if "__" in head:
+                order, cid = head.rsplit("__", 1)
+                cid = os.path.splitext(cid)[0].strip()
+                if cid.isdigit(): target = cid
             if not target:
-                log.warning("no target for %s", name); continue
+                # адресата в назві немає — кладемо в робочий чат і позначаємо
+                target = ADMIN_CHAT; caption = (caption or "") + "\n⚠️ у назві файлу немає <номер>__<id> — надсилаю в робочий чат"
+            path = os.path.join(tempfile.gettempdir(), f["id"] + "_" + raw)
+            await asyncio.to_thread(drive_sa.download, f["id"], path)
+            sent_ok = False
             try:
                 await context.bot.send_document(target, open(path, "rb"), caption=caption, filename=name)
-                who = CLIENTS.get(str(target), {}).get("name") or target
+                sent_ok = True
             except Exception:
                 log.exception("send to %s failed", target)
-            # копія адміну, якщо слали клієнту
+            who = CLIENTS.get(str(target), {}).get("name") or target
             if ADMIN_CHAT and str(target) != str(ADMIN_CHAT):
-                try: await context.bot.send_document(ADMIN_CHAT, open(path, "rb"), caption=f"↑ надіслано клієнту: {who}", filename=name)
+                try:
+                    tag = f"↑ надіслано замовнику: {who}" + (f" · {order}" if order else "")
+                    await context.bot.send_document(ADMIN_CHAT, open(path, "rb"), caption=tag, filename=name)
                 except Exception: log.exception("admin copy failed")
-            await asyncio.to_thread(drive_sa.mark_sent, f["id"])
+            if sent_ok:
+                await asyncio.to_thread(drive_sa.mark_sent, f["id"])
             try: os.remove(path)
             except Exception: pass
             log.info("delivered %s -> %s", name, target)
