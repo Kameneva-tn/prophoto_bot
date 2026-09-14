@@ -94,6 +94,44 @@ def download(file_id, dest):
         while not done: _, done = dl.next_chunk()
     return dest
 
+def layout_enabled():
+    return enabled() and bool(os.getenv("DRIVE_LAYOUT_FOLDER_ID"))
+
+def upload_layout(order_dir, order_id, brief_text=None):
+    """Кладе фото + короткий бриф замовлення в «НА ВЕРСТКУ»/<order_id> на Drive. Повертає лінк на папку."""
+    from googleapiclient.http import MediaFileUpload
+    import glob, mimetypes, io
+    svc = _svc(); parent = os.getenv("DRIVE_LAYOUT_FOLDER_ID")
+    folder = svc.files().create(body={"name": order_id, "mimeType": "application/vnd.google-apps.folder", "parents": [parent]},
+                                fields="id,webViewLink", supportsAllDrives=True).execute()
+    if brief_text:
+        from googleapiclient.http import MediaInMemoryUpload
+        svc.files().create(body={"name": "brief.txt", "parents": [folder["id"]]},
+                           media_body=MediaInMemoryUpload(brief_text.encode("utf-8"), mimetype="text/plain"),
+                           fields="id", supportsAllDrives=True).execute()
+    for f in sorted(glob.glob(os.path.join(order_dir, "photos", "*"))):
+        mime = mimetypes.guess_type(f)[0] or "application/octet-stream"
+        svc.files().create(body={"name": os.path.basename(f), "parents": [folder["id"]]},
+                           media_body=MediaFileUpload(f, mimetype=mime, resumable=True), fields="id", supportsAllDrives=True).execute()
+    return folder["webViewLink"]
+
+def upload_sources(order_dir, order_id):
+    """Кладе фото + бриф замовлення у ПОСТИ/НА ВЕРСТКУ/<order_id>. Повертає webViewLink або None."""
+    parent = os.getenv("DRIVE_SOURCES_FOLDER_ID")
+    if not parent: return None
+    from googleapiclient.http import MediaFileUpload
+    import glob, mimetypes
+    svc = _svc()
+    folder = svc.files().create(body={"name": order_id, "mimeType": "application/vnd.google-apps.folder", "parents": [parent]},
+                                fields="id,webViewLink", supportsAllDrives=True).execute()
+    files = glob.glob(os.path.join(order_dir, "*")) + glob.glob(os.path.join(order_dir, "photos", "*"))
+    for f in files:
+        if os.path.isdir(f): continue
+        mime = mimetypes.guess_type(f)[0] or "application/octet-stream"
+        svc.files().create(body={"name": os.path.basename(f), "parents": [folder["id"]]},
+                           media_body=MediaFileUpload(f, mimetype=mime, resumable=True), fields="id", supportsAllDrives=True).execute()
+    return folder["webViewLink"]
+
 def mark_sent(file_id):
     svc = _svc(); parent = os.getenv("DRIVE_DELIVERY_FOLDER_ID"); dest = _sent_folder(svc, parent)
     svc.files().update(fileId=file_id, addParents=dest, removeParents=parent, fields="id", supportsAllDrives=True).execute()
