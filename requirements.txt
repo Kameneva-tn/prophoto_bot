@@ -1,0 +1,6 @@
+python-telegram-bot[job-queue]>=21
+anthropic>=0.40
+pillow>=10
+requests>=2.31
+google-api-python-client>=2.100
+google-auth>=2.20

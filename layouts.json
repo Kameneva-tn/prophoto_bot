@@ -1,0 +1,83 @@
+{
+  "types": {
+    "band": {
+      "label": "фото зверху + чорна смуга знизу із заголовком",
+      "template": "5"
+    },
+    "plashka": {
+      "label": "фото на весь кадр + напівпрозора плашка із заголовком знизу",
+      "template": "6"
+    },
+    "spaced_reg": {
+      "label": "заголовок по центру фото, розріджений Regular",
+      "template": "3"
+    },
+    "spaced_light": {
+      "label": "заголовок по центру фото, розріджений тонкий Light",
+      "template": "1"
+    },
+    "centered": {
+      "label": "великий заголовок по центру-знизу на фото, без плашки",
+      "template": "4"
+    },
+    "two_photos": {
+      "label": "два фото поряд + чорна смуга з жирним заголовком",
+      "template": "2"
+    },
+    "basic": {
+      "label": "чорний фірмовий: логотип, заголовок, три фото",
+      "template": "7"
+    },
+    "sales": {
+      "label": "продажна обкладинка курсу (ціна, старт, «КУРС»)",
+      "template": null
+    },
+    "photo": {
+      "label": "просто фото без тексту",
+      "template": null
+    },
+    "photo_frame": {
+      "label": "фото у білій рамці без тексту",
+      "template": null
+    },
+    "band_bw": {
+      "label": "чорно-біле фото + чорна смуга знизу із заголовком",
+      "template": "9"
+    }
+  },
+  "layouts": {
+    "A": {
+      "title": "Розкладка A — інформаційна стрічка",
+      "note": "переважно плашки на фото, кожен 4–5-й пост — продажний",
+      "cells": [
+        "sales",
+        "band",
+        "band",
+        "plashka",
+        "sales",
+        "plashka",
+        "basic",
+        "plashka",
+        "plashka",
+        "plashka",
+        "plashka",
+        "plashka"
+      ]
+    },
+    "B": {
+      "title": "Розкладка B — шахівниця з чистими фото",
+      "note": "середня колонка — завжди чисте фото; крайні — обкладинки, що чергують стилі",
+      "cells": [
+        "spaced_reg",
+        "photo",
+        "band",
+        "photo_frame",
+        "centered",
+        "photo",
+        "two_photos",
+        "photo",
+        "spaced_light"
+      ]
+    }
+  }
+}

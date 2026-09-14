@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: prophoto-bot
+    runtime: python
+    plan: starter            # free засинає через 15 хв — бот перестане відповідати
+    buildCommand: pip install -r requirements.txt
+    startCommand: python3 bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ADMIN_CHAT_ID
+        sync: false
+      - key: AI_ENABLED
+        value: "1"
+      - key: FIGMA_VIA_CLAUDE_CODE
+        value: "0"
+      - key: PYTHON_VERSION
+        value: "3.12.6"

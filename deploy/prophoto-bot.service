@@ -1,0 +1,15 @@
+[Unit]
+Description=PROPHOTO Telegram bot
+After=network-online.target
+
+[Service]
+WorkingDirectory=/root/bot
+EnvironmentFile=/root/bot/.env
+Environment=HOME=/root
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 /root/bot/bot.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
