@@ -383,6 +383,15 @@ async def finish(update, ctx):
     await chat.send_message(f"Дякую! Замовлення #{brief['order_id']} прийнято.\nШаблон {t} — {TEMPLATES[t]['name']}, фото: {len(brief['photos'])}.\n"
                             "Ми зберемо макет і надішлемо сюди на погодження.")
     link = None
+    if DRIVE_ENABLED:
+        try: link = drive_sa.upload_sources(d, brief["order_id"])
+        except Exception: log.exception("upload_sources failed")
+    if DRIVE_ENABLED and drive_sa.layout_enabled() and not brief.get("draft"):
+        try:
+            import asyncio
+            link = await asyncio.to_thread(drive_sa.upload_layout, d, brief["order_id"], order_text(brief))
+        except Exception:
+            log.exception("layout upload failed")
     figma_url = None
     if FIGMA_ENABLED and (brief["type"] == "reels" or brief.get("slides")) and not brief.get("draft"):
         await chat.send_message("Збираю макет у Figma… це займе 2–4 хвилини.")
@@ -407,7 +416,7 @@ async def finish(update, ctx):
             log.exception("render failed")
     if ADMIN_CHAT:
         try:
-            txt = order_text(brief) + (f"\n\n📁 Drive: {link}" if link else "\n\n(Drive не налаштовано — фото лише в orders/ на сервері)") + (f"\nFigma: {figma_url}" if figma_url else "")
+            txt = order_text(brief) + (f"\n\n📁 НА ВЕРСТКУ: {link}" if link else "") + (f"\nFigma: {figma_url}" if figma_url else "")
             await ctx.bot.send_message(ADMIN_CHAT, txt[:4000], disable_web_page_preview=True)
         except Exception:
             log.exception("admin notify failed")
