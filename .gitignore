@@ -1,0 +1,10 @@
+.env
+credentials.json
+token.json
+service_account.json
+figma_tokens.json
+file_ids.json
+orders/
+__pycache__/
+*.pyc
+.DS_Store
