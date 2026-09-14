@@ -25,6 +25,16 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PREV = os.path.join(HERE, "previews")
 ORDERS = os.path.join(HERE, "orders")
 TEMPLATES = json.load(open(os.path.join(HERE, "templates.json"), encoding="utf-8"))
+CLIENTS_PATH = os.path.join(HERE, "clients.json")
+CLIENTS = json.load(open(CLIENTS_PATH)) if os.path.exists(CLIENTS_PATH) else {}
+def remember_client(u):
+    if not u: return
+    cid = str(u.id)
+    rec = {"name": u.full_name, "username": u.username}
+    if CLIENTS.get(cid) != rec:
+        CLIENTS[cid] = rec
+        try: json.dump(CLIENTS, open(CLIENTS_PATH, "w"), ensure_ascii=False, indent=1)
+        except Exception: pass
 LAYOUTS = json.load(open(os.path.join(HERE, "layouts.json"), encoding="utf-8"))
 LAYOUT_DIR = os.path.join(HERE, "layouts")
 ADMIN_CHAT = os.getenv("ADMIN_CHAT_ID")  # chat id to notify about new orders (you)
@@ -427,25 +437,38 @@ async def cancel(update, ctx):
 
 # ----------------------------------------------------------------------------- main
 async def deliver_ready(context):
-    """Раз на хвилину: усе нове в Drive «ГОТОВО» → у чат клієнта (ADMIN_CHAT / група) → у «ВІДПРАВЛЕНО»."""
-    if not (DRIVE_ENABLED and drive_sa.delivery_enabled() and ADMIN_CHAT): return
+    """Раз на хвилину: файли з Drive «ГОТОВО» → адресату. Формат назви: [<chat_id>__]назва[ -- підпис].ext
+    Якщо на початку є <id>__ — шлемо цьому клієнту в приват і копію в ADMIN_CHAT; інакше — лише в ADMIN_CHAT."""
+    if not (DRIVE_ENABLED and drive_sa.delivery_enabled()): return
     try:
         import asyncio, tempfile
         files = await asyncio.to_thread(drive_sa.list_ready)
         for f in files:
-            name = f["name"]; caption = None
+            name = f["name"]; target = ADMIN_CHAT; who = None
+            if "__" in name:
+                pref, rest = name.split("__", 1)
+                if pref.strip().lstrip("-").isdigit():
+                    target = pref.strip(); name = rest
+            caption = None
             if " -- " in name:
-                base, cap = name.split(" -- ", 1); caption = os.path.splitext(cap)[0]
+                _, cap = name.split(" -- ", 1); caption = os.path.splitext(cap)[0]
             path = os.path.join(tempfile.gettempdir(), f["id"] + "_" + name)
             await asyncio.to_thread(drive_sa.download, f["id"], path)
-            if f["mimeType"].startswith("image/"):
-                await context.bot.send_document(ADMIN_CHAT, open(path, "rb"), caption=caption or "Готовий макет — файл у повній якості.", filename=name)
-            else:
-                await context.bot.send_document(ADMIN_CHAT, open(path, "rb"), caption=caption, filename=name)
+            if not target:
+                log.warning("no target for %s", name); continue
+            try:
+                await context.bot.send_document(target, open(path, "rb"), caption=caption, filename=name)
+                who = CLIENTS.get(str(target), {}).get("name") or target
+            except Exception:
+                log.exception("send to %s failed", target)
+            # копія адміну, якщо слали клієнту
+            if ADMIN_CHAT and str(target) != str(ADMIN_CHAT):
+                try: await context.bot.send_document(ADMIN_CHAT, open(path, "rb"), caption=f"↑ надіслано клієнту: {who}", filename=name)
+                except Exception: log.exception("admin copy failed")
             await asyncio.to_thread(drive_sa.mark_sent, f["id"])
             try: os.remove(path)
             except Exception: pass
-            log.info("delivered %s", name)
+            log.info("delivered %s -> %s", name, target)
     except Exception:
         log.exception("deliver_ready failed")
 
@@ -501,6 +524,10 @@ def main():
     )
     async def trace(update, context):
         u = update.effective_user
+        try:
+            if update.effective_chat and update.effective_chat.type == "private":
+                remember_client(u)
+        except Exception: pass
         log.info("UPDATE from %s (%s): %s", u.id if u else "?", u.username if u else "?",
                  (update.message.text if update.message and update.message.text else "") or (update.callback_query.data if update.callback_query else "<other>"))
     app.add_handler(MessageHandler(filters.ALL, trace), group=-1)
